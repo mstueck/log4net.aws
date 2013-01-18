@@ -5,6 +5,8 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using log4net.Appender.Language;
 using log4net.Core;
+using System.Text;
+using System.IO;
 
 namespace log4net.Appender
 {
@@ -23,7 +25,7 @@ namespace log4net.Appender
             set { _bucketName = value; }
         }
 
-        public S3Appender()
+        public override void ActivateOptions()
         {
             var client = new AmazonS3Client();
             ListBucketsResponse response = client.ListBuckets();
@@ -33,6 +35,8 @@ namespace log4net.Appender
             {
                 client.PutBucket(new PutBucketRequest().WithBucketName(BucketName));
             }
+
+            base.ActivateOptions();
         }
 
         /// <summary>
@@ -47,18 +51,27 @@ namespace log4net.Appender
         protected override void SendBuffer(LoggingEvent[] events)
         {
             var client = new AmazonS3Client();
-            Parallel.ForEach(events, l => UploadEvent(l, client));
+            UploadEvents(events, client);
         }
 
-        private void UploadEvent(LoggingEvent loggingEvent, AmazonS3 client)
+        private void UploadEvents(LoggingEvent[] events, AmazonS3 client)
         {
-            string key = Guid.NewGuid().ToString();
-            var xml = Utility.GetXmlString(loggingEvent);
+            var key = Filename(Guid.NewGuid().ToString());
 
-            PutObjectRequest request = new PutObjectRequest();
+            var content = new StringBuilder(events.Count());
+            Array.ForEach(events, logEvent =>
+                {
+                    using (var writer = new StringWriter())
+                    {
+                        Layout.Format(writer, logEvent);
+                        content.AppendLine(writer.ToString());
+                    }
+                });
+
+            var request = new PutObjectRequest();
             request.WithBucketName(_bucketName);
-            request.WithKey(Filename(key));
-            request.WithContentBody(xml);
+            request.WithKey(key);
+            request.WithContentBody(content.ToString());
             client.PutObject(request);
         }
 
